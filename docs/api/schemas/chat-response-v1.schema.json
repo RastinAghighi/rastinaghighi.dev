@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "rastinaghighi.dev chat API v1: response body (PROPOSED)",
-  "description": "Body of every response from POST /api/chat/v1, whether it succeeds or fails: HTTP 200 (answered, navigation, refused), 4xx (error) and 429 or 5xx (unavailable). PROPOSED and not owner-approved: see docs/api/chat-v1.md. All seven members are always present, and no other member is allowed at any level, so nothing from the inference application's internal record can pass through. Which HTTP status goes with each status and error code is defined in chat-v1.md, section 9.",
+  "description": "Body of every response from POST /api/chat/v1, whether it succeeds or fails: HTTP 200 (answered, navigation, refused), 4xx (error) and 429 or 5xx (unavailable). PROPOSED and not owner-approved: see docs/api/chat-v1.md. All seven members are always present, and no other member is allowed at any level. This structural rule keeps unexpected members out of the body. It does not show that the strings in the permitted members are safe to display or where they came from: keeping private or internal information out of those values depends on the origin's content controls (chat-v1.md, section 18.2), not on this schema. Which HTTP status goes with each status and error code is defined in chat-v1.md, section 9.",
   "type": "object",
   "properties": {
     "request_id": {
@@ -19,7 +19,7 @@
       "maxLength": 4000
     },
     "cloud_preview": {
-      "description": "The start of answer_text sized for the thought cloud. Identical to answer_text when that fits; otherwise cut at a word boundary and ending with an ellipsis (U+2026).",
+      "description": "The beginning of answer_text, sized for the thought cloud. Identical to answer_text when that fits. Otherwise it is shortened: a nonempty start of answer_text followed by an ellipsis (U+2026). The cut is normally at a word boundary; a word too long for a cloud line may be cut within the word. This schema checks only the preview's length and characters. It cannot verify that the preview is derived from answer_text or how it was shortened; those are runtime checks (chat-v1.md, section 18.2, R4).",
       "$comment": "137 = 3 lines x 45 characters + 2 joining spaces, from the inference application's PROVISIONAL cloud approximation.",
       "$ref": "#/$defs/display_text",
       "maxLength": 137
@@ -149,7 +149,7 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
     "display_text": {
-      "description": "Plain text on one line, with at least one non-whitespace character. C0 and C1 control characters, DEL, the line and paragraph separators and bidirectional control characters are not allowed.",
+      "description": "Plain text on one line, with at least one non-whitespace character. The pattern rejects the C0 controls (U+0000 to U+001F), DEL (U+007F), the C1 controls (U+0080 to U+009F), the line and paragraph separators (U+2028, U+2029) and the explicit bidirectional embedding, override and isolate controls (U+202A to U+202E, U+2066 to U+2069). It does not reject the directional marks U+061C, U+200E and U+200F or any other Unicode format character (category Cf) outside those two ranges, such as U+00AD, U+200B or U+FEFF. Removing control and format characters from model answers is a runtime requirement of the origin (chat-v1.md, section 18.2, R2), not a rule of this schema.",
       "type": "string",
       "minLength": 1,
       "pattern": "\\S",
@@ -181,7 +181,7 @@
           "const": "mascot_chat"
         },
         "reasons": {
-          "description": "exceeds_cloud: answer_text is longer than cloud_preview. output_limit_reached: generation stopped at the origin's length limit, so answer_text itself is incomplete. Listed in this order when both apply.",
+          "description": "exceeds_cloud: cloud_preview is a shortened start of answer_text, present exactly when the preview is shortened (a runtime check: chat-v1.md, section 18.2, R4). output_limit_reached: generation stopped at the origin's length limit, so answer_text itself is incomplete. Listed in this order when both apply.",
           "enum": [
             ["exceeds_cloud"],
             ["output_limit_reached"],
