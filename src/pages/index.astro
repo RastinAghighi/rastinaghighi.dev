@@ -1,8 +1,10 @@
 ---
-// Homepage. A static page with no client-side JavaScript and no images yet.
-// A dark full-width hero, then a cream editorial section linking to the four
-// site sections. The empty .hero-visual element reserves the hero's main area
-// for the visual, which is prepared separately. Styles are scoped to this page.
+// Homepage. A dark full-width hero, then a cream editorial section linking to
+// the four site sections. The hero's .hero-visual area shows the black-hole
+// artwork: the static WebP by default, replaced by the WebGL animation from
+// src/pages/experiments/black-hole-motion.astro (same shader, fixed settings)
+// once it has rendered. Styles are scoped to this page.
+const artwork = '/media/coral-peach-strong-shader-source.webp';
 ---
 
 <!doctype html>
@@ -30,7 +32,9 @@
 
     <main>
       <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-visual" aria-hidden="true"></div>
+        <div class="hero-visual" aria-hidden="true">
+          <img src={artwork} width="1280" height="720" alt="" />
+        </div>
         <div class="hero-text">
           <h1 id="hero-title">Rastin Aghighi</h1>
           <p class="hero-line">Research portfolio</p>
@@ -51,6 +55,353 @@
     </main>
   </body>
 </html>
+
+<script>
+  // The constants, shaders, shadow detection and texture setup below are copied
+  // unchanged from src/pages/experiments/black-hole-motion.astro. The
+  // experiment's controls are replaced by the approved homepage settings.
+  const WIDTH = 1280;
+  const HEIGHT = 720;
+  const LOOP_SECONDS = 12;
+  const BASE_SHIFT_PX = 14;
+  const MOTION_STRENGTH = 1.4; // the experiment's "Motion strength" slider
+  const SPEED = 1; // the experiment's "Animation speed" slider
+  const SHADOW_CENTRE = [640, 361];
+  const SHADOW_RADIUS = 199;
+  const SHADOW_SEEDS = [
+    [640, 270],
+    [640, 530],
+  ];
+
+  const VERTEX_SHADER = `
+attribute vec2 aPosition;
+void main() {
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}`;
+
+  const FRAGMENT_SHADER = `
+precision highp float;
+
+uniform sampler2D uImage;    // source image, nearest filtering
+uniform sampler2D uCellDist; // per 2x2 cell: distance to the shadow in px (0 = shadow)
+uniform vec2 uSize;          // image size in px
+uniform float uLoop;         // position in the 12 s loop, 0..1
+uniform float uShift;        // px moved per flow cycle at the fastest point; 0 = still
+
+const vec2 CENTRE = vec2(640.0, 361.0); // shadow centre, image px
+const float INCLINATION = 0.22;          // disk orbits seen as ellipses of this aspect
+const float INNER = 220.0;               // radius where speed is normalised to 1
+const float CYCLES = 6.0;                // flow cycles per loop (2 s each at 1x)
+const float TWO_PI = 6.28318530718;
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x),
+             mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+// Orbital velocity at offset d from the centre (y up), counter-clockwise on
+// screen. The disk uses flattened ellipses; the lensed arc above the shadow
+// uses circles. Angular speed falls off as r^-1.5, like Kepler orbits.
+vec2 orbitVelocity(vec2 d) {
+  float re = max(length(vec2(d.x, d.y / INCLINATION)), INNER);
+  vec2 disk = pow(re / INNER, -1.5) * vec2(-d.y / INCLINATION, INCLINATION * d.x);
+  float rc = length(d);
+  vec2 ring = pow(max(rc, INNER) / INNER, -1.5) * vec2(-d.y, d.x);
+  float arc = (1.0 - smoothstep(330.0, 470.0, rc)) * smoothstep(-30.0, 30.0, d.y);
+  return mix(disk, ring, arc) / INNER;
+}
+
+// Mirror out-of-range pixel coordinates back into the image.
+vec2 mirrorPx(vec2 p) {
+  vec2 m = mod(p, 2.0 * uSize);
+  return mix(m, 2.0 * uSize - 1.0 - m, step(uSize, m));
+}
+
+float cellDist(vec2 cell) {
+  return texture2D(uCellDist, (cell + 0.5) / (uSize * 0.5)).r * 255.0;
+}
+
+void main() {
+  vec2 px = floor(vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y));
+  vec4 original = texture2D(uImage, (px + 0.5) / uSize);
+  vec2 cell = floor(px * 0.5);
+  float dist = cellDist(cell);
+  if (uShift <= 0.0 || dist < 0.5) {
+    gl_FragColor = original;
+    return;
+  }
+
+  // Work per dither cell so the 2x2 structure survives.
+  vec2 c = cell * 2.0 + 1.0;
+  vec2 v = orbitVelocity(vec2(c.x - CENTRE.x, CENTRE.y - c.y));
+  vec2 shift = vec2(v.x, -v.y) * uShift * smoothstep(4.0, 40.0, dist);
+
+  // Flow map: two layers drift forward, each restarting while invisible.
+  // Spatial noise staggers the restarts; the sine term varies the pace by
+  // about 10% over 12 s without ever reversing it (6 - 2pi * 0.1 > 0).
+  float tau = CYCLES * uLoop + valueNoise(c / 360.0)
+            + 0.1 * sin(TWO_PI * (uLoop + valueNoise(c / 300.0 + 11.0)));
+  float phaseA = fract(tau);
+  float phaseB = fract(tau + 0.5);
+  float weightB = abs(2.0 * phaseA - 1.0);
+  float phase = (0.001 + 0.998 * hash12(cell)) < weightB ? phaseB : phaseA;
+
+  // Sample upstream, never reaching into the shadow.
+  vec2 offset = shift * (phase - 0.5);
+  float maxLen = max(0.0, 0.9 * dist - 3.0);
+  float len = length(offset);
+  if (len > maxLen) offset *= maxLen / len;
+
+  vec2 src = mirrorPx(px - 2.0 * floor(offset * 0.5 + 0.5));
+  if (cellDist(floor(src * 0.5)) < 0.5) {
+    gl_FragColor = original;
+    return;
+  }
+  gl_FragColor = texture2D(uImage, (src + 0.5) / uSize);
+}`;
+
+  // Distance from each 2x2 cell to the shadow, in px (0 = shadow cell),
+  // clamped to 255. The shadow is the dark region connected to the seeds,
+  // limited to a circle slightly larger than the silhouette.
+  function shadowCellDistance(pixels: Uint8ClampedArray): Uint8Array {
+    const isDark = (i: number) =>
+      0.2126 * pixels[i * 4] + 0.7152 * pixels[i * 4 + 1] + 0.0722 * pixels[i * 4 + 2] < 30;
+    const limit = (SHADOW_RADIUS * 1.06) ** 2;
+    const nearShadow = (x: number, y: number) =>
+      (x - SHADOW_CENTRE[0]) ** 2 + (y - SHADOW_CENTRE[1]) ** 2 <= limit;
+
+    const shadow = new Uint8Array(WIDTH * HEIGHT);
+    const stack: number[] = [];
+    for (const [x, y] of SHADOW_SEEDS) {
+      const i = y * WIDTH + x;
+      if (isDark(i)) {
+        shadow[i] = 1;
+        stack.push(i);
+      }
+    }
+    while (stack.length > 0) {
+      const i = stack.pop()!;
+      const x = i % WIDTH;
+      const y = (i - x) / WIDTH;
+      const neighbours: [number, number][] = [
+        [x - 1, y],
+        [x + 1, y],
+        [x, y - 1],
+        [x, y + 1],
+      ];
+      for (const [nx, ny] of neighbours) {
+        if (nx < 0 || ny < 0 || nx >= WIDTH || ny >= HEIGHT) continue;
+        const j = ny * WIDTH + nx;
+        if (!shadow[j] && nearShadow(nx, ny) && isDark(j)) {
+          shadow[j] = 1;
+          stack.push(j);
+        }
+      }
+    }
+
+    const cw = WIDTH / 2;
+    const ch = HEIGHT / 2;
+    const dist = new Float32Array(cw * ch).fill(1e6);
+    for (let cy = 0; cy < ch; cy++) {
+      for (let cx = 0; cx < cw; cx++) {
+        const p = cy * 2 * WIDTH + cx * 2;
+        if (shadow[p] || shadow[p + 1] || shadow[p + WIDTH] || shadow[p + WIDTH + 1]) dist[cy * cw + cx] = 0;
+      }
+    }
+    // Two-pass chamfer distance transform (steps of 1 and √2 cells).
+    const d2 = Math.SQRT2;
+    const at = (x: number, y: number) => (x < 0 || y < 0 || x >= cw || y >= ch ? 1e6 : dist[y * cw + x]);
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        const i = y * cw + x;
+        dist[i] = Math.min(dist[i], at(x - 1, y) + 1, at(x, y - 1) + 1, at(x - 1, y - 1) + d2, at(x + 1, y - 1) + d2);
+      }
+    }
+    for (let y = ch - 1; y >= 0; y--) {
+      for (let x = cw - 1; x >= 0; x--) {
+        const i = y * cw + x;
+        dist[i] = Math.min(dist[i], at(x + 1, y) + 1, at(x, y + 1) + 1, at(x + 1, y + 1) + d2, at(x - 1, y + 1) + d2);
+      }
+    }
+    const out = new Uint8Array(cw * ch);
+    for (let i = 0; i < out.length; i++) out[i] = Math.min(255, Math.round(dist[i] * 2));
+    return out;
+  }
+
+  function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
+    const shader = gl.createShader(type)!;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(shader) || 'Shader compile failed');
+    }
+    return shader;
+  }
+
+  function texture(gl: WebGLRenderingContext, unit: number): WebGLTexture {
+    const tex = gl.createTexture()!;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+
+  // Homepage runtime. The static <img> stays visible until a WebGL frame has
+  // rendered cleanly; then data-state becomes "animated" and CSS hides the
+  // image over the canvas. Reduced motion sets "still" (image shown, no
+  // animation work). Any failure, including a lost context, sets "fallback"
+  // and removes the canvas for good, leaving the image.
+  const visual = document.querySelector<HTMLElement>('.hero-visual')!;
+  const artwork = visual.querySelector<HTMLImageElement>('img')!;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  type Renderer = { canvas: HTMLCanvasElement; gl: WebGLRenderingContext; draw: () => void };
+  let renderer: Renderer | null = null;
+  let starting = false;
+  let failed = false;
+  let loopTime = 0; // seconds into the loop
+  let last = 0;
+  let raf = 0;
+
+  // Same image, shadow mask, textures and uniforms as the experiment's start().
+  async function setUp(): Promise<Renderer> {
+    await artwork.decode();
+    if (artwork.naturalWidth !== WIDTH || artwork.naturalHeight !== HEIGHT) {
+      throw new Error(`Expected a ${WIDTH}×${HEIGHT} image`);
+    }
+
+    const scratch = document.createElement('canvas');
+    scratch.width = WIDTH;
+    scratch.height = HEIGHT;
+    const ctx = scratch.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(artwork, 0, 0);
+    const cellDistance = shadowCellDistance(ctx.getImageData(0, 0, WIDTH, HEIGHT).data);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+    const gl = canvas.getContext('webgl', {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: false,
+      powerPreference: 'low-power',
+    });
+    if (!gl) throw new Error('WebGL unavailable');
+    const highp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    if (!highp || highp.precision === 0) throw new Error('High-precision shaders unavailable');
+
+    const program = gl.createProgram()!;
+    gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER));
+    gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(program) || 'Shader link failed');
+    }
+    gl.useProgram(program);
+
+    // One triangle that covers the whole canvas.
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'aPosition');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+    texture(gl, 0);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, artwork);
+    texture(gl, 1);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, WIDTH / 2, HEIGHT / 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, cellDistance);
+
+    gl.uniform1i(gl.getUniformLocation(program, 'uImage'), 0);
+    gl.uniform1i(gl.getUniformLocation(program, 'uCellDist'), 1);
+    gl.uniform2f(gl.getUniformLocation(program, 'uSize'), WIDTH, HEIGHT);
+    const uLoop = gl.getUniformLocation(program, 'uLoop');
+    gl.uniform1f(gl.getUniformLocation(program, 'uShift'), MOTION_STRENGTH * BASE_SHIFT_PX);
+    gl.viewport(0, 0, WIDTH, HEIGHT);
+
+    canvas.addEventListener('webglcontextlost', () => fail(new Error('WebGL context lost')));
+    // Beneath the image, so its first frame is composited before it is shown.
+    visual.prepend(canvas);
+
+    return {
+      canvas,
+      gl,
+      draw() {
+        gl.uniform1f(uLoop, loopTime / LOOP_SECONDS);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      },
+    };
+  }
+
+  // The experiment's frame(): the same clock, at speed 1.
+  function frame(now: number) {
+    if (!renderer) return;
+    const { gl, draw } = renderer;
+    const dt = last ? Math.min((now - last) / 1000, 0.1) : 0;
+    last = now;
+    loopTime = (loopTime + dt * SPEED) % LOOP_SECONDS;
+    draw();
+    if (visual.dataset.state !== 'animated') {
+      // Swap the image for the canvas only after a clean render.
+      if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) {
+        fail(new Error('WebGL render failed'));
+        return;
+      }
+      visual.dataset.state = 'animated';
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function fail(error: unknown) {
+    failed = true;
+    cancelAnimationFrame(raf);
+    visual.dataset.state = 'fallback';
+    visual.querySelector('canvas')?.remove();
+    renderer = null;
+    console.warn('Hero animation unavailable; showing the still image.', error);
+  }
+
+  // Runs on load and whenever reduced motion or page visibility changes.
+  function update() {
+    cancelAnimationFrame(raf);
+    if (failed) return;
+    if (reducedMotion.matches) {
+      visual.dataset.state = 'still';
+      return;
+    }
+    if (document.hidden) return;
+    if (!renderer) {
+      if (!starting) {
+        starting = true;
+        setUp().then((result) => {
+          renderer = result;
+          update();
+        }, fail);
+      }
+      return;
+    }
+    last = 0; // resume without a jump
+    raf = requestAnimationFrame(frame);
+  }
+
+  reducedMotion.addEventListener('change', update);
+  document.addEventListener('visibilitychange', update);
+  update();
+</script>
 
 <style>
   /* Palette */
@@ -151,7 +502,31 @@
   }
 
   .hero-visual {
+    position: relative;
     min-height: 16rem;
+  }
+
+  /* The artwork (and the canvas that replaces it) fills the free area at its
+     own 16:9 ratio, centred, never wider than the page measure, with a small
+     gap above the title. Both are out of flow, so they never push the title
+     down or widen the page. The canvas sits beneath the image until its first
+     frame has been drawn. The canvas is created by the script, so it has no
+     scope attribute and needs :global(). */
+  .hero-visual img,
+  .hero-visual :global(canvas) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: var(--measure);
+    height: calc(100% - clamp(0.75rem, 2.5vh, 2rem));
+    margin: 0 auto;
+    object-fit: contain;
+  }
+
+  .hero-visual[data-state='animated'] img {
+    visibility: hidden;
   }
 
   .hero-text {

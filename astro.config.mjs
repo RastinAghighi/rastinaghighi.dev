@@ -8,7 +8,28 @@ import { defineConfig } from 'astro/config';
 // chat origin (Mascot-Lab: `python -m mascot_lab.local_origin`, which listens
 // on http://127.0.0.1:8765). There is no production proxy, gateway, adapter
 // or deployment configuration here: a static build contains no backend.
+
+// Development-only pages: the chat test page and the black-hole experiment.
+// They live in src/dev-pages/, outside src/pages/, so `astro build` never
+// sees them and the production dist/ contains neither the pages nor their
+// assets. Under `astro dev` they are served at their usual URLs.
+/** @type {import('astro').AstroIntegration} */
+const devOnlyPages = {
+  name: 'dev-only-pages',
+  hooks: {
+    'astro:config:setup': ({ command, injectRoute }) => {
+      if (command !== 'dev') return;
+      injectRoute({ pattern: '/chat-test', entrypoint: './src/dev-pages/chat-test.astro' });
+      injectRoute({
+        pattern: '/experiments/black-hole-motion',
+        entrypoint: './src/dev-pages/experiments/black-hole-motion.astro',
+      });
+    },
+  },
+};
+
 export default defineConfig({
+  integrations: [devOnlyPages],
   server: {
     // The Python origin accepts browser requests only from
     // http://127.0.0.1:4321 and http://localhost:4321.
