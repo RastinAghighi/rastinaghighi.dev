@@ -1,0 +1,42 @@
+---
+// Project detail pages. One static page per entry whose frontmatter has
+// `published: true`; drafts get no page. The URL is /projects/<entry ID>/,
+// using the collection's own entry ID (the same value the Projects index links
+// to). Plain semantic HTML with no styling: the visual design is decided
+// separately.
+import type { CollectionEntry } from 'astro:content';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const projects = await getCollection('projects', ({ data }) => data.published === true);
+  return projects.map((project) => ({
+    params: { id: project.id },
+    props: { project },
+  }));
+}
+
+interface Props {
+  project: CollectionEntry<'projects'>;
+}
+
+const { project } = Astro.props;
+const { Content } = await render(project);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{project.data.title}</title>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>{project.data.title}</h1>
+        <p>{project.data.summary}</p>
+        <Content />
+      </article>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,293 @@
+---
+// Local chat test page. A static page with no server-side code.
+// The browser posts to the relative URL /api/chat/v1; during `astro dev`, the
+// proxy in astro.config.mjs forwards it to the local Python chat origin.
+// Request and response shapes: docs/api/chat-v1.md and docs/api/schemas/.
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Local chatbot test</title>
+    <style is:global>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1b1b1b;
+        --muted: #5a5a5a;
+        --border: #9a9a9a;
+        --surface: #f4f4f4;
+        --accent: #1d4ed8;
+        --accent-fg: #ffffff;
+        --fail-bg: #fdecea;
+        --fail-fg: #8a1c12;
+        --fail-border: #d9a39c;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #141414;
+          --fg: #ececec;
+          --muted: #a8a8a8;
+          --border: #6a6a6a;
+          --surface: #1f1f1f;
+          --accent: #8ab4ff;
+          --accent-fg: #0b1a33;
+          --fail-bg: #3a1a17;
+          --fail-fg: #ffb4a8;
+          --fail-border: #7a3a33;
+        }
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 40rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+      h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 0.5rem; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; }
+      label { display: block; font-weight: 600; margin-bottom: 0.4rem; }
+      textarea {
+        display: block;
+        width: 100%;
+        min-height: 6rem;
+        padding: 0.6rem 0.7rem;
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        resize: vertical;
+      }
+      textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .controls { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.6rem; }
+      .count { color: var(--muted); font-size: 0.9rem; }
+      .count.over { color: var(--fail-fg); font-weight: 600; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 0.5rem 1.4rem;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .input-error { color: var(--fail-fg); margin: 0.6rem 0 0; }
+      .result { margin-top: 2rem; }
+      .label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 1.25rem 0 0.3rem;
+      }
+      .text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .loading { margin: 0; padding: 0.8rem 1rem; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); }
+      .answer { padding: 0.8rem 1rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+      .answer.failed { background: var(--fail-bg); border-color: var(--fail-border); color: var(--fail-fg); }
+      .status { margin: 0 0 0.4rem; font-weight: 600; font-size: 0.9rem; }
+      .meta { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+      .answer.failed .meta { color: inherit; opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Local chatbot test</h1>
+      <p class="intro">
+        A local development page for the site's chatbot. Each question is sent
+        on its own to the local chat origin through the Astro development
+        proxy. Earlier questions are not remembered.
+      </p>
+
+      <form id="chat-form" novalidate>
+        <label for="chat-message">Your question</label>
+        <textarea
+          id="chat-message"
+          name="message"
+          rows="4"
+          autocomplete="off"
+          aria-describedby="chat-count chat-input-error"></textarea>
+        <div class="controls">
+          <span id="chat-count" class="count">0 / 1,000 characters</span>
+          <button id="chat-send" type="submit">Send</button>
+        </div>
+        <p id="chat-input-error" class="input-error" role="alert" hidden></p>
+      </form>
+
+      <section id="chat-result" class="result" hidden>
+        <p class="label">Question</p>
+        <p id="chat-question" class="text"></p>
+        <p class="label">Answer</p>
+        <p id="chat-loading" class="loading" role="status" hidden>
+          Waiting for the answer… <span id="chat-elapsed" aria-hidden="true"></span>
+          The first question after the model has been idle can take about two minutes.
+        </p>
+        <div id="chat-answer-box" class="answer" aria-live="polite" hidden>
+          <p id="chat-status" class="status"></p>
+          <p id="chat-answer" class="text"></p>
+          <p id="chat-meta" class="meta" hidden></p>
+        </div>
+      </section>
+    </main>
+
+    <script is:inline type="module">
+      // Chat API v1 client for this test page (docs/api/chat-v1.md, PROPOSED).
+      const ENDPOINT = '/api/chat/v1'; // relative: same origin, proxied in development
+      const MAX_CODE_POINTS = 1000; // section 5: counted in Unicode code points
+      const FAILED_STATUSES = ['error', 'unavailable'];
+      const STATUS_LABELS = {
+        answered: 'Answered',
+        navigation: 'Navigation (actions are not handled on this test page)',
+        refused: 'Refused',
+        error: 'Error',
+        unavailable: 'Unavailable',
+      };
+      const NO_RESPONSE_LABEL = 'Unavailable';
+      const NO_RESPONSE_TEXT =
+        'No valid response from the chat service. Check that the local chat origin is running, then try again.';
+      const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+      const form = document.getElementById('chat-form');
+      const input = document.getElementById('chat-message');
+      const sendButton = document.getElementById('chat-send');
+      const count = document.getElementById('chat-count');
+      const inputError = document.getElementById('chat-input-error');
+      const result = document.getElementById('chat-result');
+      const question = document.getElementById('chat-question');
+      const loading = document.getElementById('chat-loading');
+      const elapsed = document.getElementById('chat-elapsed');
+      const answerBox = document.getElementById('chat-answer-box');
+      const statusLine = document.getElementById('chat-status');
+      const answer = document.getElementById('chat-answer');
+      const meta = document.getElementById('chat-meta');
+
+      let pending = false;
+
+      /** Length in Unicode code points; String.prototype.length counts UTF-16 code units. */
+      function codePointLength(text) {
+        let length = 0;
+        for (const _ of text) length += 1;
+        return length;
+      }
+
+      function updateCount() {
+        const length = codePointLength(input.value);
+        count.textContent = `${length.toLocaleString('en-US')} / 1,000 characters`;
+        count.classList.toggle('over', length > MAX_CODE_POINTS);
+      }
+
+      function showInputError(text) {
+        inputError.textContent = text;
+        inputError.hidden = text === '';
+      }
+
+      /** Whether the HTTP status is one the contract pairs with this public status (section 9). */
+      function statusMatchesHttp(status, http) {
+        switch (status) {
+          case 'answered':
+          case 'navigation':
+          case 'refused':
+            return http === 200;
+          case 'error':
+            return http >= 400 && http < 500 && http !== 429;
+          case 'unavailable':
+            return http === 429 || (http >= 500 && http < 600);
+          default:
+            return false;
+        }
+      }
+
+      /** The response body, or null when there is no conforming response (treated as unavailable, section 19.4). */
+      async function send(message) {
+        let response;
+        try {
+          response = await fetch(ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+            credentials: 'omit', // section 4: no cookies
+          });
+        } catch {
+          return null; // the development server could not be reached
+        }
+        let body;
+        try {
+          body = await response.json();
+        } catch {
+          return null; // not JSON, for example the proxy's empty 500 while the origin is stopped
+        }
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
+        if (typeof body.answer_text !== 'string' || body.answer_text.trim() === '') return null;
+        if (!statusMatchesHttp(body.status, response.status)) return null;
+        return body;
+      }
+
+      function showOutcome(label, text, failed, requestId) {
+        statusLine.textContent = label;
+        answer.textContent = text; // plain text only, never HTML
+        meta.textContent = requestId ? `Request ID: ${requestId}` : '';
+        meta.hidden = !requestId;
+        answerBox.classList.toggle('failed', failed);
+        answerBox.hidden = false;
+      }
+
+      input.addEventListener('input', updateCount);
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (pending) return;
+
+        const message = input.value; // sent exactly as accepted: not trimmed or otherwise changed
+        if (!/\S/.test(message)) {
+          showInputError('Please type a question before sending.');
+          return;
+        }
+        const length = codePointLength(message);
+        if (length > MAX_CODE_POINTS) {
+          showInputError(`Your question is ${length.toLocaleString('en-US')} characters long. The limit is 1,000.`);
+          return;
+        }
+        showInputError('');
+
+        pending = true;
+        sendButton.disabled = true;
+        form.setAttribute('aria-busy', 'true');
+        question.textContent = message;
+        result.hidden = false;
+        answerBox.hidden = true;
+        loading.hidden = false;
+        const started = Date.now();
+        elapsed.textContent = '0 s.';
+        const timer = setInterval(() => {
+          elapsed.textContent = `${Math.floor((Date.now() - started) / 1000)} s.`;
+        }, 1000);
+
+        try {
+          const body = await send(message);
+          if (body === null) {
+            showOutcome(NO_RESPONSE_LABEL, NO_RESPONSE_TEXT, true, null);
+          } else {
+            const requestId = typeof body.request_id === 'string' && REQUEST_ID.test(body.request_id) ? body.request_id : null;
+            showOutcome(STATUS_LABELS[body.status], body.answer_text, FAILED_STATUSES.includes(body.status), requestId);
+          }
+        } catch {
+          showOutcome(NO_RESPONSE_LABEL, NO_RESPONSE_TEXT, true, null);
+        } finally {
+          clearInterval(timer);
+          loading.hidden = true;
+          pending = false;
+          sendButton.disabled = false;
+          form.removeAttribute('aria-busy');
+        }
+      });
+    </script>
+  </body>
+</html>
