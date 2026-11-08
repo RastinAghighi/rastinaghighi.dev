@@ -1,0 +1,41 @@
+---
+// Notes index. Lists only entries whose frontmatter has `published: true`;
+// drafts are never rendered. Titles are not linked: note detail pages do not
+// exist yet. Plain semantic HTML with no styling: the visual design is decided
+// separately.
+import { getCollection } from 'astro:content';
+
+const notes = (await getCollection('notes', ({ data }) => data.published === true))
+  // Stable order by entry ID until a display order is chosen.
+  .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notes</title>
+  </head>
+  <body>
+    <main>
+      <h1>Notes</h1>
+      {
+        notes.length === 0 ? (
+          <p>No notes have been published yet.</p>
+        ) : (
+          <ul>
+            {notes.map((note) => (
+              <li>
+                <article>
+                  <h2>{note.data.title}</h2>
+                  <p>{note.data.summary}</p>
+                </article>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </main>
+  </body>
+</html>
