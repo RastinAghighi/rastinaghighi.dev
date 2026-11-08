@@ -1,0 +1,42 @@
+---
+// Note detail pages. One static page per entry whose frontmatter has
+// `published: true`; drafts get no page. The URL is /notes/<entry ID>/,
+// using the collection's own entry ID (the same value the Notes index links
+// to). Plain semantic HTML with no styling: the visual design is decided
+// separately.
+import type { CollectionEntry } from 'astro:content';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notes', ({ data }) => data.published === true);
+  return notes.map((note) => ({
+    params: { id: note.id },
+    props: { note },
+  }));
+}
+
+interface Props {
+  note: CollectionEntry<'notes'>;
+}
+
+const { note } = Astro.props;
+const { Content } = await render(note);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{note.data.title}</title>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>{note.data.title}</h1>
+        <p>{note.data.summary}</p>
+        <Content />
+      </article>
+    </main>
+  </body>
+</html>
