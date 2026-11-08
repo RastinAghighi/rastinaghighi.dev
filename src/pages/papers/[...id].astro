@@ -1,0 +1,42 @@
+---
+// Paper detail pages. One static page per entry whose frontmatter has
+// `published: true`; drafts get no page. The URL is /papers/<entry ID>/,
+// using the collection's own entry ID (the same value the Papers index links
+// to). Plain semantic HTML with no styling: the visual design is decided
+// separately.
+import type { CollectionEntry } from 'astro:content';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const papers = await getCollection('papers', ({ data }) => data.published === true);
+  return papers.map((paper) => ({
+    params: { id: paper.id },
+    props: { paper },
+  }));
+}
+
+interface Props {
+  paper: CollectionEntry<'papers'>;
+}
+
+const { paper } = Astro.props;
+const { Content } = await render(paper);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{paper.data.title}</title>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>{paper.data.title}</h1>
+        <p>{paper.data.summary}</p>
+        <Content />
+      </article>
+    </main>
+  </body>
+</html>
