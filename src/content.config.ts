@@ -24,4 +24,25 @@ const projects = defineCollection({
     .strict(),
 });
 
-export const collections = { projects };
+// Papers: one Markdown file per paper in src/content/papers/.
+//
+// Same minimal, strict content-only schema as Projects: a missing, mistyped
+// or unknown field fails the build.
+const papers = defineCollection({
+  loader: glob({ base: './src/content/papers', pattern: '**/*.md' }),
+  schema: z
+    .object({
+      title: z.string().trim().min(1),
+      // Short plain-text description.
+      summary: z.string().trim().min(1),
+      // Required, with no default, so every entry states whether it is public.
+      // Only entries with `published: true` may appear on the site.
+      published: z.boolean(),
+      // Optional metadata.
+      tags: z.array(z.string().trim().min(1)).optional(),
+      updated: z.coerce.date().optional(),
+    })
+    .strict(),
+});
+
+export const collections = { projects, papers };
