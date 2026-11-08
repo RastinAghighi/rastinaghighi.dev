@@ -2,8 +2,13 @@
 // Paper detail pages. One static page per entry whose frontmatter has
 // `published: true`; drafts get no page. The URL is /papers/<entry ID>/,
 // using the collection's own entry ID (the same value the Papers index links
-// to). Plain semantic HTML with no styling: the visual design is decided
-// separately.
+// to). A static page with no client-side JavaScript, in the Papers index's
+// warm editorial style and laid out like the Project detail pages: the same
+// cream header and navigation (Papers marked as the current section), then a
+// label column and an article column. The title and summary open the
+// article; the Markdown body follows in a narrower reading column, styled
+// through the .article-body wrapper. The header is not a shared component
+// yet. Styles are scoped to this page.
 import type { CollectionEntry } from 'astro:content';
 import { getCollection, render } from 'astro:content';
 
@@ -28,15 +33,414 @@ const { Content } = await render(paper);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{paper.data.title}</title>
+    <title>{`${paper.data.title} | Rastin Aghighi`}</title>
   </head>
   <body>
+    <header class="site-header">
+      <div class="bar">
+        <a class="site-name" href="/">Rastin Aghighi</a>
+        <nav aria-label="Site">
+          <ul>
+            <li><a href="/projects/">Projects</a></li>
+            <li><a href="/papers/" aria-current="page">Papers</a></li>
+            <li><a href="/notes/">Notes</a></li>
+            <li><a href="/about/">About</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
     <main>
-      <article>
-        <h1>{paper.data.title}</h1>
-        <p>{paper.data.summary}</p>
-        <Content />
-      </article>
+      <div class="paper">
+        <p class="label">Paper</p>
+        <div class="paper-body">
+          <article>
+            <header class="article-header">
+              <h1>{paper.data.title}</h1>
+              <p class="summary">{paper.data.summary}</p>
+            </header>
+            <div class="article-body">
+              <Content />
+            </div>
+          </article>
+          <p class="back"><a href="/papers/"><span class="arrow" aria-hidden="true">←</span>Back to Papers</a></p>
+        </div>
+      </div>
     </main>
   </body>
 </html>
+
+<style>
+  /* Palette and type: the Papers index's editorial values, plus a reading
+     width, a monospace stack and a faint tint for code. */
+  html {
+    --cream: #fef9ed; /* background */
+    --brown: #5d524b; /* text */
+    --rule: rgba(93, 82, 75, 0.28); /* separators on cream */
+    --code-bg: rgba(93, 82, 75, 0.07); /* code on cream */
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    --gutter: clamp(1.25rem, 5vw, 4rem);
+    --measure: 84rem;
+    --reading: 42rem;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--brown);
+    font: 1rem/1.55 var(--sans);
+  }
+
+  a {
+    color: var(--brown);
+  }
+
+  a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 4px;
+    border-radius: 2px;
+  }
+
+  /* Header: identical to the Papers index's. Wraps onto two lines on
+     narrow screens. */
+  .site-header {
+    background: var(--cream);
+  }
+
+  .bar {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 1.25rem var(--gutter);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 2rem;
+  }
+
+  .site-name {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+    padding: 0.4rem 0;
+  }
+
+  .site-header ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.75rem;
+  }
+
+  .site-header nav a {
+    display: inline-block;
+    padding: 0.4rem 0;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+  }
+
+  .site-header nav a:hover,
+  .site-header nav a[aria-current='page'] {
+    text-decoration: underline;
+    text-underline-offset: 0.3em;
+    text-decoration-thickness: 1px;
+  }
+
+  /* Main content: a label column and an article column on wide screens,
+     stacked on narrow ones. Same spacing as the Papers index. */
+  .paper {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: clamp(4rem, 12vw, 9rem) var(--gutter) clamp(5rem, 14vw, 11rem);
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  /* Grid items default to min-width: auto; this keeps long titles and wide
+     code blocks from widening the column. */
+  .paper-body {
+    min-width: 0;
+  }
+
+  .label {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  /* Title and summary. Article titles run longer than section names, so the
+     title is set a step smaller than the index headings and wraps within the
+     reading column. */
+  .article-header {
+    max-width: var(--reading);
+  }
+
+  h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.25rem, 1.25rem + 4vw, 4rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    overflow-wrap: break-word;
+    text-wrap: balance;
+  }
+
+  /* Summary: set like the About introduction. */
+  .summary {
+    margin: clamp(1.5rem, 3.5vw, 2.5rem) 0 0;
+    font-size: clamp(1.125rem, 1rem + 0.45vw, 1.375rem);
+    line-height: 1.6;
+    overflow-wrap: break-word;
+  }
+
+  /* Markdown body. <Content /> renders its HTML straight into this wrapper,
+     so the elements carry no scope attribute: they are reached with
+     :global() under the scoped .article-body. */
+  .article-body {
+    max-width: var(--reading);
+    margin-top: clamp(3rem, 7vw, 5rem);
+    font-size: clamp(1.0625rem, 1rem + 0.2vw, 1.125rem);
+    line-height: 1.7;
+    overflow-wrap: break-word;
+  }
+
+  /* Reset block margins (zero specificity), then space the body's top-level
+     elements evenly. */
+  .article-body :global(:where(h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, pre, figure, hr)) {
+    margin: 0;
+  }
+
+  .article-body > :global(* + *) {
+    margin-top: 1.35rem;
+  }
+
+  /* Headings: serif like the title, more space above than below. h5 and h6
+     switch to the sans label style. */
+  .article-body :global(:is(h2, h3, h4, h5, h6)) {
+    font-weight: 400;
+    text-wrap: balance;
+  }
+
+  .article-body :global(h2) {
+    font-family: var(--serif);
+    font-size: clamp(1.625rem, 1.3rem + 1.1vw, 2.125rem);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+
+  .article-body :global(h3) {
+    font-family: var(--serif);
+    font-size: clamp(1.3125rem, 1.15rem + 0.55vw, 1.5rem);
+    line-height: 1.3;
+  }
+
+  .article-body :global(h4) {
+    font-family: var(--serif);
+    font-size: 1.1875rem;
+    line-height: 1.4;
+  }
+
+  .article-body :global(h5) {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .article-body :global(h6) {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .article-body > :global(h2) {
+    margin-top: clamp(2.75rem, 6vw, 3.75rem);
+  }
+
+  .article-body > :global(h3) {
+    margin-top: 2.5rem;
+  }
+
+  .article-body > :global(:is(h4, h5, h6)) {
+    margin-top: 2rem;
+  }
+
+  .article-body > :global(:is(h2, h3, h4, h5, h6) + *) {
+    margin-top: 0.85rem;
+  }
+
+  .article-body > :global(:is(h2, h3, h4, h5, h6) + :is(h3, h4, h5, h6)) {
+    margin-top: 1.5rem;
+  }
+
+  .article-body > :global(:first-child) {
+    margin-top: 0;
+  }
+
+  /* Lists, including nested ones: markers sit in the left padding. */
+  .article-body :global(:is(ul, ol)) {
+    padding-left: 1.5em;
+  }
+
+  .article-body :global(li) {
+    padding-left: 0.25em;
+  }
+
+  .article-body :global(li + li),
+  .article-body :global(li > :is(ul, ol)),
+  .article-body :global(li > * + :is(p, pre, blockquote)) {
+    margin-top: 0.5rem;
+  }
+
+  /* Blockquotes: serif, set off by a thin rule rather than a box. */
+  .article-body :global(blockquote) {
+    padding-left: 1.25rem;
+    border-left: 2px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 1.1em;
+    line-height: 1.6;
+  }
+
+  .article-body :global(blockquote > * + *) {
+    margin-top: 1rem;
+  }
+
+  /* Links: text colour (the page's scoped `a` rule does not reach Markdown
+     links), always underlined; the underline thickens on hover, and keyboard
+     focus adds the site's outline, pulled in closer for inline text. */
+  .article-body :global(a) {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+
+  .article-body :global(a:hover) {
+    text-decoration-thickness: 2px;
+  }
+
+  .article-body :global(a:focus-visible) {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Inline code. */
+  .article-body :global(code) {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    background: var(--code-bg);
+  }
+
+  /* Fenced code blocks: never wrap; a long line scrolls inside its block
+     instead of widening the page. */
+  .article-body :global(pre) {
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 1rem 1.25rem;
+    border-radius: 3px;
+    background: var(--code-bg);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-wrap: normal;
+    tab-size: 4;
+  }
+
+  .article-body :global(pre code) {
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    font-size: inherit;
+  }
+
+  /* Astro highlights fenced code with Shiki's default dark theme, written as
+     inline styles. Override those colours so code blocks stay in the cream
+     palette (plain text, no syntax colours). Remove this rule if a light
+     Shiki theme is configured later. */
+  .article-body :global(pre.astro-code) {
+    background-color: var(--code-bg) !important;
+    color: var(--brown) !important;
+  }
+
+  .article-body :global(pre.astro-code span) {
+    color: inherit !important;
+  }
+
+  /* Shiki makes code blocks focusable so they can be scrolled by keyboard. */
+  .article-body :global(pre:focus-visible) {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+
+  /* Images and rules: keep images inside the column; rules match the site's
+     separators. */
+  .article-body :global(img) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .article-body :global(hr) {
+    border: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* Back link: same treatment as the Papers index, with its rule as wide
+     as the reading column above it. */
+  .back {
+    max-width: var(--reading);
+    margin: clamp(3rem, 7vw, 5rem) 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+  }
+
+  .back a {
+    display: inline-block;
+    padding: 0.4rem 0;
+    text-decoration: none;
+  }
+
+  .back a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.3em;
+    text-decoration-thickness: 1px;
+  }
+
+  .back .arrow {
+    display: inline-block;
+    margin-right: 0.6em;
+  }
+
+  /* Same breakpoint and columns as the Papers index. The label sits on the
+     title's first baseline. */
+  @media (min-width: 52rem) {
+    .paper {
+      grid-template-columns: minmax(10rem, 1fr) 3fr;
+      align-items: baseline;
+      gap: 3rem;
+    }
+  }
+</style>
